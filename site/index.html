@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SA casino welcome bonuses</title>
+  <style>
+    :root {
+      --bg: #f7f8f6;
+      --surface: #ffffff;
+      --text: #1b2420;
+      --muted: #5b6760;
+      --line: #dde3de;
+      --accent: #0f5132;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121816;
+        --surface: #1b2420;
+        --text: #e8eeea;
+        --muted: #9aa8a0;
+        --line: #2f3b35;
+        --accent: #6fcf9d;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem 1rem 3rem;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 56rem; margin: 0 auto; }
+    h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+    .meta, .note { color: var(--muted); font-size: .875rem; }
+    a { color: var(--accent); }
+    table {
+      width: 100%;
+      margin: 1.25rem 0;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--line);
+    }
+    th, td { padding: .75rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { font-size: .875rem; color: var(--muted); font-weight: 600; }
+    td.num { font-variant-numeric: tabular-nums; }
+    .small { display: block; color: var(--muted); font-size: .8125rem; }
+    #status { padding: 1rem; border: 1px solid var(--line); background: var(--surface); }
+
+    /* Phones: each table row becomes a stacked block with labels */
+    @media (max-width: 40rem) {
+      table, thead, tbody, tr, th, td { display: block; }
+      thead { position: absolute; left: -9999px; }
+      table { background: none; border: 0; }
+      tr { margin-bottom: 1rem; background: var(--surface); border: 1px solid var(--line); }
+      td { display: flex; gap: 1rem; justify-content: space-between; border-bottom: 1px solid var(--line); }
+      td:last-child { border-bottom: 0; }
+      td::before { content: attr(data-label); flex: 0 0 7rem; color: var(--muted); font-size: .875rem; }
+      td > div { text-align: right; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>SA casino welcome bonuses</h1>
+  <p class="meta" id="meta">Loading data...</p>
+
+  <div id="status" hidden></div>
+
+  <table id="table" hidden>
+    <thead>
+      <tr>
+        <th>Casino</th>
+        <th>Welcome bonus</th>
+        <th>Wagering</th>
+        <th>Minimum deposit</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <p class="note">
+    For adults aged 18 and over. Terms change often, so confirm them with the casino before you deposit.
+    Gambling can be addictive. Help is available from the National Responsible Gambling Programme on 0800 006 008.
+  </p>
+  <noscript><p>This page needs JavaScript to show the table.</p></noscript>
+</main>
+
+<script>
+  // Everything from the JSON goes in through textContent, never innerHTML,
+  // so scraped text can never inject markup into the page.
+  function el(tag, text, attrs) {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+    return node;
+  }
+
+  function formatMoney(deposit) {
+    if (!deposit || deposit.amount == null) return "Not stated";
+    if (!deposit.currency) return String(deposit.amount);
+    return new Intl.NumberFormat("en-ZA", {
+      style: "currency",
+      currency: deposit.currency,
+      maximumFractionDigits: 0,
+    }).format(deposit.amount);
+  }
+
+  function cell(label, ...children) {
+    const td = el("td", undefined, { "data-label": label });
+    const wrap = el("div");
+    children.forEach((c) => wrap.append(c));
+    td.append(wrap);
+    return td;
+  }
+
+  function showStatus(message) {
+    const status = document.getElementById("status");
+    status.textContent = message;
+    status.hidden = false;
+    document.getElementById("meta").textContent = "";
+  }
+
+  function render(data) {
+    const rows = document.getElementById("rows");
+    for (const c of data.casinos) {
+      const tr = el("tr");
+      tr.append(
+        cell("Casino", el("strong", c.name)),
+        cell("Welcome bonus", c.welcome_bonus),
+        cell(
+          "Wagering",
+          c.wagering_multiplier == null ? "Not stated" : c.wagering_multiplier + "x",
+          el("span", c.wagering_note || "", { class: "small" })
+        ),
+        cell("Minimum deposit", formatMoney(c.min_deposit)),
+        cell("Source", el("a", "BetProof", { href: c.source_url, rel: "noopener" }))
+      );
+      tr.children[2].classList.add("num");
+      rows.append(tr);
+    }
+    document.getElementById("table").hidden = false;
+
+    const when = new Date(data.generated_at).toLocaleDateString("en-ZA", {
+      year: "numeric", month: "long", day: "numeric",
+    });
+    document.getElementById("meta").textContent = "Data collected " + when + " from betproof.co.za";
+  }
+
+  fetch("casinos.json", { cache: "no-cache" })
+    .then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(render)
+    .catch(() => showStatus("No data yet. Run the scraper (python scrape.py) to create site/casinos.json."));
+</script>
+</body>
+</html>
