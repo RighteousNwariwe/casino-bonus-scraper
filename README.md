@@ -51,9 +51,6 @@ python -m unittest discover -s tests -v
 
 The tests run offline with a fake model. They cover table parsing, the number validation and the retry logic.
 
-## Deploy
-
-Netlify: drag the `site` folder onto https://app.netlify.com/drop, or connect the repo (`netlify.toml` already sets the publish directory to `site`). GitHub Pages and Vercel also work with `site` as the root.
 
 ## Known limits
 
