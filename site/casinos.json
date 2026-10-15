@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-10-15T11:40:44+00:00",
+  "source": "https://betproof.co.za/casino-bonuses-south-africa/",
+  "model": "gemini-flash-latest",
+  "casinos": [
+    {
+      "name": "Hollywoodbets",
+      "welcome_bonus": "R25 sign-up + 50 free spins",
+      "wagering_multiplier": 1,
+      "wagering_note": "The wagering requirement applies to sports.",
+      "min_deposit": {
+        "amount": 10,
+        "currency": "ZAR"
+      },
+      "source_url": "https://betproof.co.za/casino-bonuses-south-africa/",
+      "review_url": "https://betproof.co.za/casino-reviews/hollywoodbets/",
+      "raw": {
+        "bonus_text": "R25 sign-up + 50 free spins",
+        "wagering_text": "1x sports / 10x spins",
+        "min_deposit_text": "R10"
+      }
+    },
+    {
+      "name": "PlayaBets",
+      "welcome_bonus": "100% up to R3,000",
+      "wagering_multiplier": 6,
+      "wagering_note": "The wagering requirement is 6x.",
+      "min_deposit": {
+        "amount": 10,
+        "currency": "ZAR"
+      },
+      "source_url": "https://betproof.co.za/casino-bonuses-south-africa/",
+      "review_url": "https://betproof.co.za/casino-reviews/playabets/",
+      "raw": {
+        "bonus_text": "100% up to R3,000",
+        "wagering_text": "6x",
+        "min_deposit_text": "R10"
+      }
+    },
+    {
+      "name": "Springbok Casino",
+      "welcome_bonus": "R250 no-deposit + up to R11,500 (3 deposits)",
+      "wagering_multiplier": 30,
+      "wagering_note": "The wagering requirement is 30x.",
+      "min_deposit": {
+        "amount": 25,
+        "currency": "ZAR"
+      },
+      "source_url": "https://betproof.co.za/casino-bonuses-south-africa/",
+      "review_url": "https://betproof.co.za/casino-reviews/springbok-casino/",
+      "raw": {
+        "bonus_text": "R250 no-deposit + up to R11,500 (3 deposits)",
+        "wagering_text": "30x",
+        "min_deposit_text": "R25"
+      }
+    }
+  ]
+}

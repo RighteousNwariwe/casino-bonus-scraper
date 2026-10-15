@@ -1,6 +1,6 @@
 # Casino bonus scraper
 
-Pulls welcome bonus data for three South African online casinos (Hollywoodbets, PlayaBets, Springbok Casino) from one public comparison page, structures it with a language model, and shows it on a single responsive web page.
+Pulls welcome bonus data for three South African online casinos (Hollywoodbets, PlayaBets, Springbok Casino) from one public comparison page, structures it with a language model (Google Gemini, free tier), and shows it on a single responsive web page.
 
 Source: https://betproof.co.za/casino-bonuses-south-africa/
 
@@ -8,7 +8,7 @@ Source: https://betproof.co.za/casino-bonuses-south-africa/
 
 1. `scrape.py` reads robots.txt and only continues if the page is allowed. It never retries or works around a block. If the source refuses us, it stops with a clear message so you can switch source.
 2. It fetches the page once and parses the "Every SA casino bonus compared" table with BeautifulSoup.
-3. For each of the three casinos, the free-text cells (bonus, wagering, minimum deposit) go to a Claude model, which returns structured fields through a forced tool call.
+3. For each of the three casinos, the free-text cells (bonus, wagering, minimum deposit) go to a Gemini model, which returns structured fields as JSON constrained by a schema.
 4. The script checks that every number the model returned really appears in the source text, and retries if not. This guards against invented values.
 5. The result is written to `site/casinos.json`, and `site/index.html` renders it as a table (cards on phones).
 
@@ -27,11 +27,13 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-export ANTHROPIC_API_KEY="your-key-here"   # Windows PowerShell: $env:ANTHROPIC_API_KEY="your-key-here"
+export GEMINI_API_KEY="your-key-here"   # Windows PowerShell: $env:GEMINI_API_KEY="your-key-here"
 python scrape.py
 ```
 
-This writes `site/casinos.json`. Optionally set `ANTHROPIC_MODEL` to use a different Claude model.
+This writes `site/casinos.json`.
+
+Get a free key at https://aistudio.google.com (no billing needed). The script defaults to the `gemini-flash-latest` model alias. If Google renames or retires it, set `GEMINI_MODEL` to a current Flash model name from AI Studio.
 
 To preview the page locally (a local server is needed because the page loads the JSON with fetch):
 
@@ -47,7 +49,7 @@ Then open http://localhost:8000
 python -m unittest discover -s tests -v
 ```
 
-The tests run offline with a fake model client. They cover table parsing, the number validation and the retry logic.
+The tests run offline with a fake model. They cover table parsing, the number validation and the retry logic.
 
 ## Deploy
 

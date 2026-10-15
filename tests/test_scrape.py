@@ -30,18 +30,16 @@ FIXTURE = """
 """
 
 
-class FakeClient:
-    """Stands in for the Anthropic client and returns canned tool calls."""
+class FakeModel:
+    """Stands in for the model call and returns canned answers in order."""
 
     def __init__(self, answers):
         self.answers = list(answers)
         self.calls = 0
-        self.messages = self
 
-    def create(self, **kwargs):
+    def __call__(self, prompt):
         self.calls += 1
-        block = SimpleNamespace(type="tool_use", input=self.answers.pop(0))
-        return SimpleNamespace(content=[block])
+        return self.answers.pop(0)
 
 
 GOOD = {
@@ -88,11 +86,22 @@ class ExtractionTests(unittest.TestCase):
            "wagering_text": "6x", "min_deposit_text": "R10"}
 
     def test_retries_after_bad_answer(self):
-        client = FakeClient([{**GOOD, "wagering_multiplier": 35}, GOOD])
+        model = FakeModel([{**GOOD, "wagering_multiplier": 35}, GOOD])
         scrape.time.sleep = lambda s: None  # keep the test fast
-        result = scrape.extract_with_llm(client, self.ROW)
+        result = scrape.extract_with_llm(model, self.ROW)
         self.assertEqual(result["wagering_multiplier"], 6)
-        self.assertEqual(client.calls, 2)
+        self.assertEqual(model.calls, 2)
+
+    def test_does_not_retry_client_errors(self):
+        response = scrape.requests.Response()
+        response.status_code = 403
+        response._content = b"bad key"
+
+        def call(prompt):
+            raise scrape.requests.HTTPError(response=response)
+
+        with self.assertRaises(RuntimeError):
+            scrape.extract_with_llm(call, self.ROW)
 
 
 class OutputTests(unittest.TestCase):

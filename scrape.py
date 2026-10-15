@@ -7,8 +7,8 @@ Pulls welcome bonus data for 3 casinos from one public comparison page
 Pipeline:
   1. Check robots.txt, then fetch the page once (no retries against blocks).
   2. Parse the comparison table with BeautifulSoup. This part is deterministic.
-  3. Send each casino's free-text cells to a language model, which returns
-     structured fields through a forced tool call.
+  3. Send each casino's free-text cells to a language model (Google Gemini,
+     free tier), which returns structured fields as schema-constrained JSON.
   4. Validate the model output against the raw text, then write the JSON.
 
 Run:  python scrape.py
@@ -34,9 +34,9 @@ SOURCE_URL = "https://betproof.co.za/casino-bonuses-south-africa/"
 USER_AGENT = "casino-bonus-screening-task/1.0 (+https://github.com/RighteousNwariwe)"
 TARGET_CASINOS = ["Hollywoodbets", "PlayaBets", "Springbok Casino"]
 OUTPUT_PATH = Path(__file__).parent / "site" / "casinos.json"
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
 REQUEST_TIMEOUT = 20
-MAX_LLM_ATTEMPTS = 3
+MAX_LLM_ATTEMPTS = 5
 
 
 class SourceBlocked(Exception):
@@ -131,51 +131,72 @@ def pick_targets(rows: list[dict[str, str]], names: list[str]) -> list[dict[str,
 # Step 3: language model turns free text into structured fields
 # --------------------------------------------------------------------------
 
-BONUS_TOOL = {
-    "name": "record_bonus_terms",
-    "description": "Record the structured welcome bonus terms for one casino.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "welcome_bonus": {
-                "type": "string",
-                "description": "Short headline of the welcome bonus, for example '100% up to R3,000'. "
-                               "Keep the original currency symbol and amounts.",
-            },
-            "wagering_multiplier": {
-                "type": ["number", "null"],
-                "description": "Wagering requirement as a plain number (6 for '6x'). If several "
-                               "multipliers are listed, use the one for the first bonus listed. "
-                               "Null if the text gives none.",
-            },
-            "wagering_note": {
-                "type": "string",
-                "description": "One short sentence saying what the multiplier applies to.",
-            },
-            "min_deposit_amount": {
-                "type": ["number", "null"],
-                "description": "Minimum deposit as a number, or null if not stated.",
-            },
-            "min_deposit_currency": {
-                "type": ["string", "null"],
-                "description": "ISO 4217 code. 'R' means South African rand (ZAR).",
-            },
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "welcome_bonus": {
+            "type": "STRING",
+            "description": "Short headline of the welcome bonus, for example '100% up to R3,000'. "
+                           "Keep the original currency symbol and amounts.",
         },
-        "required": [
-            "welcome_bonus",
-            "wagering_multiplier",
-            "wagering_note",
-            "min_deposit_amount",
-            "min_deposit_currency",
-        ],
+        "wagering_multiplier": {
+            "type": "NUMBER",
+            "nullable": True,
+            "description": "Wagering requirement as a plain number (6 for '6x'). If several "
+                           "multipliers are listed, use the one for the first bonus listed. "
+                           "Null if the text gives none.",
+        },
+        "wagering_note": {
+            "type": "STRING",
+            "description": "One short sentence saying what the multiplier applies to.",
+        },
+        "min_deposit_amount": {
+            "type": "NUMBER",
+            "nullable": True,
+            "description": "Minimum deposit as a number, or null if not stated.",
+        },
+        "min_deposit_currency": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "ISO 4217 code. 'R' means South African rand (ZAR).",
+        },
     },
+    "required": [
+        "welcome_bonus",
+        "wagering_multiplier",
+        "wagering_note",
+        "min_deposit_amount",
+        "min_deposit_currency",
+    ],
 }
 
 SYSTEM_PROMPT = (
     "You extract casino welcome bonus terms from short pieces of text. "
     "Use only what the text says. Never guess or fill gaps from general knowledge. "
-    "Always answer by calling the record_bonus_terms tool."
+    "Answer with JSON that matches the schema."
 )
+
+
+def call_gemini(prompt: str) -> dict[str, Any]:
+    """Send one prompt to Gemini and return the parsed JSON answer."""
+    resp = requests.post(
+        GEMINI_URL.format(model=MODEL),
+        headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]},
+        json={
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": RESPONSE_SCHEMA,
+            },
+        },
+        timeout=60,
+    )
+    resp.raise_for_status()
+    parts = resp.json()["candidates"][0]["content"]["parts"]
+    return json.loads("".join(p.get("text", "") for p in parts))
 
 
 def numbers_in(text: str) -> set[float]:
@@ -198,7 +219,8 @@ def validate_extraction(data: dict[str, Any], row: dict[str, str]) -> None:
         raise ValueError("empty welcome_bonus")
 
 
-def extract_with_llm(client: Any, row: dict[str, str]) -> dict[str, Any]:
+def extract_with_llm(call: Any, row: dict[str, str]) -> dict[str, Any]:
+    """Ask the model (via `call`) for structured terms, validate, retry if needed."""
     prompt = (
         f"Casino: {row['name']}\n"
         f"Bonus text: {row['bonus_text']}\n"
@@ -208,19 +230,18 @@ def extract_with_llm(client: Any, row: dict[str, str]) -> dict[str, Any]:
     last_error: Exception | None = None
     for attempt in range(1, MAX_LLM_ATTEMPTS + 1):
         try:
-            response = client.messages.create(
-                model=MODEL,
-                max_tokens=500,
-                system=SYSTEM_PROMPT,
-                tools=[BONUS_TOOL],
-                tool_choice={"type": "tool", "name": BONUS_TOOL["name"]},
-                messages=[{"role": "user", "content": prompt}],
-            )
-            block = next(b for b in response.content if b.type == "tool_use")
-            data = dict(block.input)
+            data = call(prompt)
             validate_extraction(data, row)
             return data
-        except Exception as exc:  # API hiccup or failed validation: try again
+        except requests.HTTPError as exc:
+            status = exc.response.status_code
+            if 400 <= status < 500 and status != 429:
+                # Bad key, bad model name or bad request will not fix themselves
+                raise RuntimeError(f"Model API error {status}: {exc.response.text[:300]}") from exc
+            last_error = exc
+            print(f"  attempt {attempt} failed for {row['name']}: HTTP {status}", file=sys.stderr)
+            time.sleep(5 * attempt)
+        except (ValueError, KeyError, IndexError, requests.Timeout, requests.ConnectionError) as exc:  # bad JSON or failed validation
             last_error = exc
             print(f"  attempt {attempt} failed for {row['name']}: {exc}", file=sys.stderr)
             time.sleep(attempt)
@@ -265,13 +286,9 @@ def write_output(records: list[dict[str, Any]], path: Path = OUTPUT_PATH) -> Non
 
 
 def main() -> int:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("Set ANTHROPIC_API_KEY first (see README).", file=sys.stderr)
+    if not os.environ.get("GEMINI_API_KEY"):
+        print("Set GEMINI_API_KEY first (see README).", file=sys.stderr)
         return 1
-
-    import anthropic  # imported here so tests can run without the SDK installed
-
-    client = anthropic.Anthropic()
 
     print(f"Fetching {SOURCE_URL}")
     html = fetch_html(SOURCE_URL)
@@ -280,7 +297,7 @@ def main() -> int:
     records = []
     for row in rows:
         print(f"Extracting terms for {row['name']}")
-        records.append(build_record(row, extract_with_llm(client, row)))
+        records.append(build_record(row, extract_with_llm(call_gemini, row)))
 
     write_output(records)
     print(f"Wrote {len(records)} casinos to {OUTPUT_PATH}")
